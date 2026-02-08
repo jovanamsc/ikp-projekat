@@ -120,6 +120,8 @@ int main(int argc, char** argv) {
     AdvancedHeapManager::Config config;
     config.heap_count = 8;
     AdvancedHeapManager ahm(config);
+    std::atomic<size_t> total_messages{ 0 };
+    std::atomic<size_t> total_bytes{ 0 };
 
 #ifndef _WIN32
     std::cerr << "Ovaj test server zahteva Windows Winsock.\n";
@@ -171,6 +173,9 @@ int main(int argc, char** argv) {
             // Za svakog klijenta generisemo nasumicnu duzinu odgovora.
             std::mt19937 rng(static_cast<unsigned int>(GetTickCount()));
             std::uniform_int_distribution<size_t> dist(1, options.max_message);
+            size_t client_messages = 0;
+            size_t client_bytes = 0;
+            auto client_start = std::chrono::steady_clock::now();
 
             while (true) {
                 uint32_t length = 0;
@@ -192,6 +197,8 @@ int main(int argc, char** argv) {
                     }
                     break;
                 }
+                ++client_messages;
+                client_bytes += length;
 
                 // Pripremi odgovor nasumicne duzine.
                 size_t response_size = dist(rng);
@@ -218,6 +225,8 @@ int main(int argc, char** argv) {
                     }
                     break;
                 }
+                ++client_messages;
+                client_bytes += response_size;
 
                 if (options.use_ahm) {
                     ahm.Free(send_buffer);
@@ -227,12 +236,20 @@ int main(int argc, char** argv) {
                     std::free(recv_buffer);
                 }
             }
+            auto client_end = std::chrono::steady_clock::now();
+            total_messages.fetch_add(client_messages, std::memory_order_relaxed);
+            total_bytes.fetch_add(client_bytes, std::memory_order_relaxed);
+            auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(client_end - client_start);
+            std::cout << "Klijent zavrsio: poruke=" << client_messages
+                << " bajtova=" << client_bytes
+                << " vreme(ms)=" << elapsed_ms.count() << "\n";
 
             closesocket(client_socket);
         }));
     }
 
     workers.JoinAll();
+    std::cout << "Server statistika: poruke=" << total_messages.load() << " bajtova=" << total_bytes.load() << "\n";
 
     closesocket(listen_socket);
     WSACleanup();

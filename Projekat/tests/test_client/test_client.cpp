@@ -114,8 +114,18 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    std::cout << "Klijent povezan na " << options.host << ":" << options.port
+        << " (poruke=" << options.messages
+        << ", max_poruka=" << options.max_message
+        << ", allocator=" << (options.use_ahm ? "AHM" : "malloc") << ")\n";
+
+
     std::mt19937 rng(static_cast<unsigned int>(GetTickCount()));
     std::uniform_int_distribution<size_t> dist(1, options.max_message);
+
+    size_t total_sent = 0;
+    size_t total_received = 0;
+    auto start_time = std::chrono::steady_clock::now();
 
     for (size_t i = 0; i < options.messages; ++i) {
         size_t size = dist(rng);
@@ -136,6 +146,7 @@ int main(int argc, char** argv) {
             }
             break;
         }
+        total_sent += size;
 
         uint32_t response_length = 0;
         if (!RecvAll(client_socket, &response_length, sizeof(response_length))) {
@@ -169,6 +180,7 @@ int main(int argc, char** argv) {
             }
             break;
         }
+        total_received += response_length;
 
         if (options.use_ahm) {
             ahm.Free(send_buffer);
@@ -177,7 +189,17 @@ int main(int argc, char** argv) {
             std::free(send_buffer);
             std::free(recv_buffer);
         }
+
+        if ((i + 1) % 100 == 0 || i + 1 == options.messages) {
+            std::cout << "Napredak: " << (i + 1) << "/" << options.messages
+                << " poslato_bajtova=" << total_sent
+                << " primljeno_bajtova=" << total_received << "\n";
+        }
     }
+
+    auto end_time = std::chrono::steady_clock::now();
+    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+    std::cout << "Klijent zavrsio: poslato_bajtova=" << total_sent << " primljeno_bajtova=" << total_received  << " vreme(ms)=" << elapsed_ms.count() << "\n";
 
     closesocket(client_socket);
     WSACleanup();
